@@ -1,15 +1,14 @@
-import board
 import digitalio
 import random
 import time
 from threading import Thread, Event
 
-LEFT_EYE_PIN = board.D24
-RIGHT_EYE_PIN = board.D23
+from mini_bdx_runtime.pins import LEFT_EYE_PIN, RIGHT_EYE_PIN, require
 
 
 class Eyes:
     def __init__(self, blink_duration=0.1, min_interval=1.0, max_interval=4.0):
+        require(LEFT_EYE_PIN, "eyes")
         self.left_eye = digitalio.DigitalInOut(LEFT_EYE_PIN)
         self.left_eye.direction = digitalio.Direction.OUTPUT
 

@@ -1,4 +1,5 @@
 from pypot.feetech import FeetechSTS3215IO
+from mini_bdx_runtime.ports import SERIAL_PORT
 import pickle
 import numpy as np
 import time
@@ -12,7 +13,7 @@ parser.add_argument(
     default=False,
 )
 args = parser.parse_args()
-io = FeetechSTS3215IO("/dev/ttyACM0")
+io = FeetechSTS3215IO(SERIAL_PORT)
 
 
 def convert_load(raw_load):

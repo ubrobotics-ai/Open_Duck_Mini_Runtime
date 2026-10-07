@@ -1,9 +1,7 @@
-import board
 import digitalio
 import time
 
-LEFT_FOOT_PIN = board.D22
-RIGHT_FOOT_PIN = board.D27
+from mini_bdx_runtime.pins import LEFT_FOOT_PIN, RIGHT_FOOT_PIN
 
 class FeetContacts:
     def __init__(self):

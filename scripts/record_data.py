@@ -1,9 +1,10 @@
 from pypot.feetech import FeetechSTS3215IO
+from mini_bdx_runtime.ports import SERIAL_PORT
 import pickle
 import numpy as np
 import time
 
-io = FeetechSTS3215IO("/dev/ttyACM0")
+io = FeetechSTS3215IO(SERIAL_PORT)
 
 # accelerations = [0, 10, 50, 100, 200, 255]
 accelerations = [0]

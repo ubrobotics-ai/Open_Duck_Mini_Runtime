@@ -1,8 +1,7 @@
-import board
 import digitalio
 import time
 
-PROJECTOR_GPIO = board.D25
+from mini_bdx_runtime.pins import PROJECTOR_PIN as PROJECTOR_GPIO
 
 
 class Projector:

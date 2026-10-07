@@ -3,10 +3,11 @@ import time
 import numpy as np
 import rustypot
 from mini_bdx_runtime.duck_config import DuckConfig
+from mini_bdx_runtime.ports import SERIAL_PORT
 
 
 class HWI:
-    def __init__(self, duck_config: DuckConfig, usb_port: str = "/dev/ttyACM0"):
+    def __init__(self, duck_config: DuckConfig, usb_port: str = SERIAL_PORT):
 
         self.duck_config = duck_config
 

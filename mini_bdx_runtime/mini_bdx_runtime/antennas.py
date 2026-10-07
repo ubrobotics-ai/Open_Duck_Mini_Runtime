@@ -1,10 +1,8 @@
-import board
 import pwmio
 import math
 import time
 
-LEFT_ANTENNA_PIN = board.D13
-RIGHT_ANTENNA_PIN = board.D12
+from mini_bdx_runtime.pins import LEFT_ANTENNA_PIN, RIGHT_ANTENNA_PIN, require
 LEFT_SIGN = 1
 RIGHT_SIGN = -1
 MIN_UPDATE_INTERVAL = 1 / 50  # 20ms
@@ -18,6 +16,8 @@ def value_to_duty_cycle(v):
 
 class Antennas:
     def __init__(self):
+        require(LEFT_ANTENNA_PIN, "antennas")
+        require(RIGHT_ANTENNA_PIN, "antennas")
         neutral_duty = value_to_duty_cycle(0)
         self.pwm_left = pwmio.PWMOut(LEFT_ANTENNA_PIN, frequency=50, duty_cycle=neutral_duty)
         self.pwm_right = pwmio.PWMOut(RIGHT_ANTENNA_PIN, frequency=50, duty_cycle=neutral_duty)

@@ -15,6 +15,7 @@ from mini_bdx_runtime.antennas import Antennas
 from mini_bdx_runtime.projector import Projector
 from mini_bdx_runtime.rl_utils import make_action_dict, LowPassActionFilter
 from mini_bdx_runtime.duck_config import DuckConfig
+from mini_bdx_runtime.ports import SERIAL_PORT
 
 import os
 
@@ -26,7 +27,7 @@ class RLWalk:
         self,
         onnx_model_path: str,
         duck_config_path: str = f"{HOME_DIR}/duck_config.json",
-        serial_port: str = "/dev/ttyACM0",
+        serial_port: str = SERIAL_PORT,
         control_freq: float = 50,
         pid=[30, 0, 0],
         action_scale=0.25,

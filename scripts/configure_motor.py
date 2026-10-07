@@ -1,5 +1,6 @@
 from pypot.feetech import FeetechSTS3215IO
 import argparse
+from mini_bdx_runtime.ports import SERIAL_PORT
 import time
 
 DEFAULT_ID = 1  # A brand new motor should have id 1
@@ -7,8 +8,8 @@ DEFAULT_ID = 1  # A brand new motor should have id 1
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--port",
-    help="The port the motor is connected to. Default is /dev/ttyACM0. Use `ls /dev/tty* | grep usb` to find the port.",
-    default="/dev/ttyACM0",
+    help="The port the motor is connected to. Default is $DUCK_SERIAL_PORT or /dev/ttyACM0. Use `ls /dev/tty* | grep usb` to find the port.",
+    default=SERIAL_PORT,
 )
 parser.add_argument("--id", help="The id to set to the motor.", type=str, required=True)
 args = parser.parse_args()
