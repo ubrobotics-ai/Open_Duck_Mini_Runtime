@@ -97,7 +97,14 @@ class RLWalk:
 
         self.command_freq = 20  # hz
         if self.commands:
-            self.xbox_controller = XBoxController(self.command_freq)
+            # DUCK_CONTROLLER=network: commands from a laptop over UDP
+            # (mini_bdx_runtime/network_controller.py); default: gamepad
+            if os.environ.get("DUCK_CONTROLLER", "xbox") == "network":
+                from mini_bdx_runtime.network_controller import NetworkController
+
+                self.xbox_controller = NetworkController(self.command_freq)
+            else:
+                self.xbox_controller = XBoxController(self.command_freq)
 
         # Reference motion, but we only really need the length of one phase
         # TODO
@@ -380,8 +387,15 @@ if __name__ == "__main__":
         help="replay the observations from a previous run (can be from the robot or from mujoco)",
     )
     parser.add_argument("--cutoff_frequency", type=float, default=None)
+    parser.add_argument(
+        "--controller",
+        choices=["xbox", "network"],
+        default=os.environ.get("DUCK_CONTROLLER", "xbox"),
+        help="xbox: Bluetooth gamepad on the robot; network: keyboard on a laptop over UDP",
+    )
 
     args = parser.parse_args()
+    os.environ["DUCK_CONTROLLER"] = args.controller
     pid = [args.p, args.i, args.d]
 
     print("Done parsing args")

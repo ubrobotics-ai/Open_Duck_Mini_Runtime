@@ -21,6 +21,11 @@ so that upstream `v2` can still be merged in.
 - **IMU address**: `mini_bdx_runtime/bno055_i2c.py` tries 0x28 then 0x29 (some
   BNO055 modules have ADR high). `DUCK_IMU_ADDR=0x29` forces one.
 - New script `scripts/check_feet.py` to test the foot switches.
+- **Keyboard control from a laptop** (works on any board): `mini_bdx_runtime/network_controller.py`
+  takes walking commands over UDP (port 5005) with the same interface as the
+  gamepad. Run the walk with `DUCK_CONTROLLER=network` or `--controller network`.
+  It drops to zero commands after 0.5 s without datagrams. The laptop client is
+  `robots/pato_radxa/conduzir.py` in the UBR store repository (stdlib only).
 
 Nothing else changes: the policy, the servo IDs (10–14, 20–24, 30–33), the
 offsets procedure and `v2_rl_walk_mujoco.py` are upstream's.
