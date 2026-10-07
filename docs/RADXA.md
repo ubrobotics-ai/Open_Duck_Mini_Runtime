@@ -18,6 +18,8 @@ so that upstream `v2` can still be merged in.
   host mode.
 - **OS**: Debian Bookworm (Python 3.11). Bullseye's Python 3.9 has no wheels
   for `rustypot` or `onnxruntime==1.18.1`.
+- **IMU address**: `mini_bdx_runtime/bno055_i2c.py` tries 0x28 then 0x29 (some
+  BNO055 modules have ADR high). `DUCK_IMU_ADDR=0x29` forces one.
 - New script `scripts/check_feet.py` to test the foot switches.
 
 Nothing else changes: the policy, the servo IDs (10–14, 20–24, 30–33), the
