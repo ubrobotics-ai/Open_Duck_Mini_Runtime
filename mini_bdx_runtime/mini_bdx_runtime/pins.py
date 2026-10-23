@@ -7,14 +7,22 @@ both boards, so the wiring diagram of the Open Duck Mini v2 still applies.
 
 | Signal        | Phys. pin | Raspberry Pi | Radxa Zero 3W |
 |---------------|-----------|--------------|---------------|
-| left foot     | 15        | GPIO22       | GPIO3_B1      |
-| right foot    | 13        | GPIO27       | GPIO3_B0      |
-| left eye      | 16        | GPIO24       | GPIO3_B2      |
-| right eye     | 18        | GPIO23       | GPIO4_C3      |
+| left foot     | 15        | GPIO22       | GPIO3_B0      |
+| right foot    | 13        | GPIO27       | GPIO3_A2      |
+| left eye      | 16        | GPIO24       | GPIO3_B1      |
+| right eye     | 18        | GPIO23       | GPIO3_B2      |
 | projector     | 22        | GPIO25       | GPIO3_C1      |
 | left antenna  | 33        | GPIO13 (PWM) | none (no PWM) |
 | right antenna | 32        | GPIO12 (PWM) | none (no PWM) |
 | IMU SDA / SCL | 3 / 5     | GPIO2 / 3    | GPIO1_A0 / A1 (I2C3-M0 overlay) |
+
+The Radxa column follows the gpio-line-names of the Radxa device tree
+(`gpioinfo`: gpiochip3 line 2 = PIN_13, line 8 = PIN_15, line 9 = PIN_16,
+line 10 = PIN_18, line 17 = PIN_22), checked on a Zero 3W on 23 Oct 2026.
+
+The Rockchip kernel ignores the pull-up that digitalio asks for, so the feet
+need the pato-pes-pullup device-tree overlay (ubr-store,
+robots/pato_radxa/overlays) to read anything but "pressed".
 
 Pins set to None are not available on that board; the matching feature must
 stay disabled in duck_config.json.
@@ -24,10 +32,10 @@ import board
 
 if hasattr(board, "D3_B1"):  # Radxa Zero 3 (3W / 3E)
     BOARD_NAME = "radxa_zero3"
-    LEFT_FOOT_PIN = board.D3_B1
-    RIGHT_FOOT_PIN = board.D3_B0
-    LEFT_EYE_PIN = board.D3_B2
-    RIGHT_EYE_PIN = board.D4_C3
+    LEFT_FOOT_PIN = board.D3_B0
+    RIGHT_FOOT_PIN = board.D3_A2
+    LEFT_EYE_PIN = board.D3_B1
+    RIGHT_EYE_PIN = board.D3_B2
     PROJECTOR_PIN = board.D3_C1
     LEFT_ANTENNA_PIN = None
     RIGHT_ANTENNA_PIN = None
