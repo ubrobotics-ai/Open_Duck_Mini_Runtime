@@ -48,6 +48,10 @@ class DuckConfig:
 
         self.start_paused = self.json_config.get("start_paused", False)
         self.imu_upside_down = self.json_config.get("imu_upside_down", False)
+        # e.g. ["Y", "X", "Z", "+", "-", "+"]; overrides imu_upside_down (see bno055_i2c.py)
+        self.imu_axis_remap = self.json_config.get("imu_axis_remap", None)
+        # [x, y, z] in m/s², duck frame once remapped; each module has its own (see bno055_i2c.py)
+        self.imu_accel_offsets = self.json_config.get("imu_accel_offsets", None)
         self.phase_frequency_factor_offset = self.json_config.get(
             "phase_frequency_factor_offset", 0.0
         )

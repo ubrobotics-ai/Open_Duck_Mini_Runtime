@@ -1,5 +1,9 @@
 import adafruit_bno055
-from mini_bdx_runtime.bno055_i2c import open_bno055
+from mini_bdx_runtime.bno055_i2c import (
+    apply_accel_offsets,
+    axis_remap_from_config,
+    open_bno055,
+)
 import board
 import busio
 import numpy as np
@@ -14,7 +18,13 @@ import time
 # TODO filter spikes
 class Imu:
     def __init__(
-        self, sampling_freq, user_pitch_bias=0, calibrate=False, upside_down=True
+        self,
+        sampling_freq,
+        user_pitch_bias=0,
+        calibrate=False,
+        upside_down=True,
+        axis_remap=None,
+        accel_offsets=None,
     ):
         self.sampling_freq = sampling_freq
         self.calibrate = calibrate
@@ -27,7 +37,10 @@ class Imu:
         self.imu.mode = adafruit_bno055.NDOF_MODE
         # self.imu.mode = adafruit_bno055.NDOF_FMC_OFF_MODE
 
-        if upside_down:
+        if axis_remap is not None:
+            # duck_config "imu_axis_remap": for an IMU mounted differently from the upstream duck
+            self.imu.axis_remap = axis_remap_from_config(axis_remap)
+        elif upside_down:
             self.imu.axis_remap = (
                 adafruit_bno055.AXIS_REMAP_Y,
                 adafruit_bno055.AXIS_REMAP_X,
@@ -46,6 +59,10 @@ class Imu:
                 adafruit_bno055.AXIS_REMAP_POSITIVE,
                 adafruit_bno055.AXIS_REMAP_POSITIVE,
             )
+
+        if accel_offsets is not None:
+            # duck_config "imu_accel_offsets": this module's zero error, in m/s²
+            apply_accel_offsets(self.imu, accel_offsets, adafruit_bno055.NDOF_MODE)
 
         if self.calibrate:
             self.imu.mode = adafruit_bno055.NDOF_MODE
