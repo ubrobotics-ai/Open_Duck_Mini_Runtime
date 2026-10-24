@@ -1,4 +1,6 @@
+import os
 import pygame
+from pygame._sdl2 import controller as sdl_controller
 from threading import Thread
 from queue import Queue
 import time
@@ -16,6 +18,67 @@ HEAD_PITCH_RANGE = [-0.78, 0.3]
 HEAD_YAW_RANGE = [-0.5, 0.5]
 HEAD_ROLL_RANGE = [-0.5, 0.5]
 
+# Raw joystick indices differ between drivers: the Xbox One S over Bluetooth with hid-generic
+# (Radxa) gives A0 B1 X2 Y3 LB4 RB5 and axes LX LY LT RX RY RT, while the layout below (X3 Y4 LB6
+# RB7, axes LX LY RX RY RT LT) is what the original Pi setup reported. SDL's game controller API
+# maps any controller it knows to the same Xbox layout, so use it when the controller is known.
+RAW_AXES = {"lx": 0, "ly": 1, "rx": 2, "ry": 3, "rt": 4, "lt": 5}
+RAW_BUTTONS = {"a": 0, "b": 1, "x": 3, "y": 4, "lb": 6, "rb": 7}
+
+
+class _Pad:
+    """Xbox-style reading of the first controller: sticks in [-1, 1], triggers in [-1, 1]."""
+
+    def __init__(self):
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        pygame.init()
+        sdl_controller.init()
+        self.c = None
+        for i in range(pygame.joystick.get_count()):
+            if sdl_controller.is_controller(i):
+                self.c = sdl_controller.Controller(i)
+                print(f"Loaded controller {self.c.name} (SDL mapping).")
+                return
+        self.j = pygame.joystick.Joystick(0)
+        self.j.init()
+        print(f"Loaded joystick {self.j.get_name()} with {self.j.get_numaxes()} axes (raw mapping).")
+
+    def axis(self, name):
+        if self.c is None:
+            return self.j.get_axis(RAW_AXES[name])
+        a = {
+            "lx": pygame.CONTROLLER_AXIS_LEFTX,
+            "ly": pygame.CONTROLLER_AXIS_LEFTY,
+            "rx": pygame.CONTROLLER_AXIS_RIGHTX,
+            "ry": pygame.CONTROLLER_AXIS_RIGHTY,
+            "lt": pygame.CONTROLLER_AXIS_TRIGGERLEFT,
+            "rt": pygame.CONTROLLER_AXIS_TRIGGERRIGHT,
+        }[name]
+        v = self.c.get_axis(a) / 32767.0
+        if name in ("lt", "rt"):
+            return v * 2 - 1  # SDL triggers are 0..1; the raw ones rest at -1
+        return max(-1.0, min(1.0, v))
+
+    def button(self, name):
+        if self.c is None:
+            return bool(self.j.get_button(RAW_BUTTONS[name]))
+        b = {
+            "a": pygame.CONTROLLER_BUTTON_A,
+            "b": pygame.CONTROLLER_BUTTON_B,
+            "x": pygame.CONTROLLER_BUTTON_X,
+            "y": pygame.CONTROLLER_BUTTON_Y,
+            "lb": pygame.CONTROLLER_BUTTON_LEFTSHOULDER,
+            "rb": pygame.CONTROLLER_BUTTON_RIGHTSHOULDER,
+        }[name]
+        return bool(self.c.get_button(b))
+
+    def up_down(self):
+        if self.c is None:
+            return self.j.get_hat(0)[1]
+        return int(self.c.get_button(pygame.CONTROLLER_BUTTON_DPAD_UP)) - int(
+            self.c.get_button(pygame.CONTROLLER_BUTTON_DPAD_DOWN)
+        )
+
 
 class XBoxController:
     def __init__(self, command_freq, only_head_control=False):
@@ -26,10 +89,7 @@ class XBoxController:
         self.last_commands = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.last_left_trigger = 0.0
         self.last_right_trigger = 0.0
-        pygame.init()
-        self.p1 = pygame.joystick.Joystick(0)
-        self.p1.init()
-        print(f"Loaded joystick with {self.p1.get_numaxes()} axes.")
+        self.p1 = _Pad()
         self.cmd_queue = Queue(maxsize=1)
 
         self.A_pressed = False
@@ -53,13 +113,14 @@ class XBoxController:
         left_trigger = self.last_left_trigger
         right_trigger = self.last_right_trigger
 
-        l_x = -1 * self.p1.get_axis(0)
-        l_y = -1 * self.p1.get_axis(1)
-        r_x = -1 * self.p1.get_axis(2)
-        r_y = -1 * self.p1.get_axis(3)
+        pygame.event.pump()  # process event queue
+        l_x = -1 * self.p1.axis("lx")
+        l_y = -1 * self.p1.axis("ly")
+        r_x = -1 * self.p1.axis("rx")
+        r_y = -1 * self.p1.axis("ry")
 
-        right_trigger = np.around((self.p1.get_axis(4) + 1) / 2, 3)
-        left_trigger = np.around((self.p1.get_axis(5) + 1) / 2, 3)
+        right_trigger = np.around((self.p1.axis("rt") + 1) / 2, 3)
+        left_trigger = np.around((self.p1.axis("lt") + 1) / 2, 3)
 
         if left_trigger < 0.1:
             left_trigger = 0
@@ -117,43 +178,18 @@ class XBoxController:
             last_commands[5] = head_yaw
             last_commands[6] = head_roll
 
-        for event in pygame.event.get():
-            if event.type == pygame.JOYBUTTONDOWN:
+        # held state of each button; Y toggles head control on the press only
+        y_was = self.Y_pressed
+        self.A_pressed = self.p1.button("a")
+        self.B_pressed = self.p1.button("b")
+        self.X_pressed = self.p1.button("x")
+        self.Y_pressed = self.p1.button("y")
+        self.LB_pressed = self.p1.button("lb")
+        self.RB_pressed = self.p1.button("rb")
+        if self.Y_pressed and not y_was and not self.only_head_control:
+            self.head_control_mode = not self.head_control_mode
 
-                if self.p1.get_button(0):  # A button
-                    self.A_pressed = True
-
-                if self.p1.get_button(1):  # B button
-                    self.B_pressed = True
-
-                if self.p1.get_button(3):  # X button
-                    self.X_pressed = True
-
-                if self.p1.get_button(4):  # Y button
-                    self.Y_pressed = True
-                    if not self.only_head_control:
-                        self.head_control_mode = not self.head_control_mode
-
-                if self.p1.get_button(6):  # LB button
-                    self.LB_pressed = True
-
-                if self.p1.get_button(7):  # RB button
-                    self.RB_pressed = True
-
-            if event.type == pygame.JOYBUTTONUP:
-                self.A_pressed = False
-                self.B_pressed = False
-                self.X_pressed = False
-                self.Y_pressed = False
-                self.LB_pressed = False
-                self.RB_pressed = False
-
-            # for i in range(10):
-            #     if self.p1.get_button(i):
-            #         print(f"Button {i} pressed")
-
-        up_down = self.p1.get_hat(0)[1]
-        pygame.event.pump()  # process event queue
+        up_down = self.p1.up_down()
 
         return (
             np.around(last_commands, 3),
