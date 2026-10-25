@@ -96,9 +96,17 @@ class HWI:
         self.set_position_all(self.init_pos)
         print("turn on : init pos set")
 
-        time.sleep(1)
+        time.sleep(2)
 
-        self.io.set_kps(list(self.joints.values()), self.kps)
+        # Raise the gains in steps instead of all at once: switching 14 servos
+        # straight to full kp draws a current spike that, with a part-charged
+        # 2S pack, dropped the driver off USB on the Pato Robô (Oct 2026).
+        ids = list(self.joints.values())
+        steps = 10
+        for k in range(1, steps + 1):
+            frac = k / steps
+            self.io.set_kps(ids, list(self.low_torque_kps + (np.asarray(self.kps) - self.low_torque_kps) * frac))
+            time.sleep(0.2)
         print("turn on : high kps")
 
     def turn_off(self):
