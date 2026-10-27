@@ -94,6 +94,7 @@ class RLWalk:
         self.prev_motor_targets = np.array(self.init_pos.copy())
 
         self.last_commands = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.last_ramp_t = None
 
         self.paused = self.duck_config.start_paused
 
@@ -206,6 +207,23 @@ class RLWalk:
 
         return freq
 
+    # Speed limits per second for vx, vy, wz (m/s, m/s, rad/s). Stopping at once from a
+    # fast walk tips the duck forward, so the commands follow the stick through a ramp.
+    # Speeding up is quicker than slowing down. Head commands (3..6) pass straight through.
+    RAMP_UP = (0.30, 0.40, 2.0)
+    RAMP_DOWN = (0.15, 0.20, 1.5)
+
+    def ramp_commands(self, target, t):
+        dt = 0.0 if self.last_ramp_t is None else min(t - self.last_ramp_t, 0.1)
+        self.last_ramp_t = t
+        out = list(target)
+        for k in range(3):
+            cur, tgt = self.last_commands[k], target[k]
+            speeding_up = abs(tgt) > abs(cur) and tgt * cur >= 0
+            step = (self.RAMP_UP if speeding_up else self.RAMP_DOWN)[k] * dt
+            out[k] = cur + max(-step, min(step, tgt - cur))
+        return out
+
     def run(self):
         i = 0
         try:
@@ -217,9 +235,10 @@ class RLWalk:
                 t = time.time()
 
                 if self.commands:
-                    self.last_commands, self.buttons, left_trigger, right_trigger = (
+                    target_commands, self.buttons, left_trigger, right_trigger = (
                         self.xbox_controller.get_last_command()
                     )
+                    self.last_commands = self.ramp_commands(target_commands, t)
                     if self.buttons.dpad_up.triggered:
                         self.phase_frequency_factor_offset += 0.05
                         print(
