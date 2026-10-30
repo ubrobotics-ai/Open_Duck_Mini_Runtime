@@ -224,7 +224,26 @@ class RLWalk:
             out[k] = cur + max(-step, min(step, tgt - cur))
         return out
 
+    def realtime(self):
+        """Run the control loop on its own core with real-time priority, so other work on the
+        Radxa (the duck service, the camera, Wi-Fi) doesn't delay the 50 Hz loop. Needs
+        CAP_SYS_NICE (given by pato.service); without it the loop runs as before."""
+        core = int(os.environ.get("DUCK_RT_CORE", "3"))
+        try:
+            os.sched_setaffinity(0, {core})
+        except (AttributeError, OSError, ValueError) as e:
+            print(f"realtime: could not pin to core {core}: {e}")
+        try:
+            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(int(os.environ.get("DUCK_RT_PRIO", "50"))))
+            print(f"realtime: SCHED_FIFO on core {core}")
+        except (AttributeError, PermissionError, OSError) as e:
+            print(f"realtime: no real-time priority ({e}); loop runs at normal priority")
+
     def run(self):
+        self.realtime()
+        loop_times = []
+        late = 0
+        stats_t = time.time()
         i = 0
         try:
             print("Starting")
@@ -348,6 +367,13 @@ class RLWalk:
                 i += 1
 
                 took = time.time() - t
+                loop_times.append(took)
+                if took > 1 / self.control_freq:
+                    late += 1
+                if t - stats_t > 10:
+                    print(f"loop: mean {np.mean(loop_times)*1000:.1f} ms, max {np.max(loop_times)*1000:.1f} ms, "
+                          f"late {late}/{len(loop_times)}")
+                    loop_times, late, stats_t = [], 0, t
                 # print("Full loop took", took, "fps : ", np.around(1 / took, 2))
                 if (1 / self.control_freq - took) < 0:
                     print(
