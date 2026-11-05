@@ -70,6 +70,11 @@ class HWI:
         }
 
         self.joints_offsets = self.duck_config.joints_offset
+        # duck_config "joint_limits": {"right_hip_yaw": [-0.42, 0.48], ...} in the servo's frame
+        # (target + offset). Goals are clamped to them so a policy never drives a servo into a
+        # mechanical stop: a stalled STS3215 draws 3.6 A and drops the whole leg's voltage
+        # (duck 1, 5 Nov 2026). Joints not listed are not clamped.
+        self.joint_limits = getattr(self.duck_config, "joint_limits", None) or {}
 
         self.kps = np.ones(len(self.joints)) * 32  # default kp
         self.kds = np.ones(len(self.joints)) * 0  # default kd
@@ -117,7 +122,7 @@ class HWI:
         pos is in radians
         """
         id = self.joints[joint_name]
-        pos = pos + self.joints_offsets[joint_name]
+        pos = self._clamp(joint_name, pos + self.joints_offsets[joint_name])
         self.io.write_goal_position([id], [pos])
 
     def set_position_all(self, joints_positions):
@@ -126,13 +131,19 @@ class HWI:
         Warning: expects radians
         """
         ids_positions = {
-            self.joints[joint]: position + self.joints_offsets[joint]
+            self.joints[joint]: self._clamp(joint, position + self.joints_offsets[joint])
             for joint, position in joints_positions.items()
         }
 
         self.io.write_goal_position(
             list(self.joints.values()), list(ids_positions.values())
         )
+
+    def _clamp(self, joint_name, pos):
+        lim = self.joint_limits.get(joint_name)
+        if lim is None:
+            return pos
+        return min(max(pos, lim[0]), lim[1])
 
     def get_present_positions(self, ignore=[]):
         """

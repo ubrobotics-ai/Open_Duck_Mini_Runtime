@@ -52,6 +52,8 @@ class DuckConfig:
         self.imu_axis_remap = self.json_config.get("imu_axis_remap", None)
         # [x, y, z] in m/s², duck frame once remapped; each module has its own (see bno055_i2c.py)
         self.imu_accel_offsets = self.json_config.get("imu_accel_offsets", None)
+        # {"joint": [min, max]} in the servo's frame; goals are clamped (rustypot_position_hwi.py)
+        self.joint_limits = self.json_config.get("joint_limits", {})
         self.phase_frequency_factor_offset = self.json_config.get(
             "phase_frequency_factor_offset", 0.0
         )
