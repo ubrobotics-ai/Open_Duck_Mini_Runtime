@@ -224,6 +224,19 @@ class RLWalk:
             out[k] = cur + max(-step, min(step, tgt - cur))
         return out
 
+    # Fall detection: the accelerometer's z (obs[5]) stays below FALL_AZ (≈ 60° from upright)
+    # for FALL_STEPS control steps -> torque off and stop. Without it the policy keeps driving
+    # the servos against the floor after a fall: stall current, brownouts and a Radxa reboot
+    # (duck 1, Oct–Nov 2026). DUCK_FALL_OFF=0 disables it.
+    FALL_AZ = 5.0  # m/s²
+    FALL_STEPS = 15  # 0.3 s at 50 Hz
+
+    def fallen(self, obs):
+        if os.environ.get("DUCK_FALL_OFF", "1") == "0":
+            return False
+        self._fall_count = getattr(self, "_fall_count", 0) + 1 if obs[5] < self.FALL_AZ else 0
+        return self._fall_count >= self.FALL_STEPS
+
     def realtime(self):
         """Run the control loop on its own core with real-time priority, so other work on the
         Radxa (the duck service, the camera, Wi-Fi) doesn't delay the 50 Hz loop. Needs
@@ -301,6 +314,11 @@ class RLWalk:
                 obs = self.get_obs()
                 if obs is None:
                     continue
+
+                if self.fallen(obs):
+                    print(f"FALL: accel z {obs[5]:.1f} m/s² for {self.FALL_STEPS} steps, torque off", flush=True)
+                    self.hwi.turn_off()
+                    break
 
                 self.imitation_i += 1 * (
                     self.phase_frequency_factor + self.phase_frequency_factor_offset
