@@ -189,6 +189,9 @@ class RLWalk:
 
         # lower head kps
         kps[5:9] = [8, 8, 8, 8]
+        # Duck 1 (9 Nov 2026): since the head rebuild the head_pitch needs 10-20 % torque to look
+        # down; at kp 8 it stays near 0 instead of the policy's -0.19. DUCK_HEAD_PITCH_KP=30 restores it.
+        kps[6] = int(os.environ.get("DUCK_HEAD_PITCH_KP", kps[6]))
 
         self.hwi.set_kps(kps)
         self.hwi.set_kds(kds)
@@ -267,6 +270,26 @@ class RLWalk:
             return False
         self._fall_count = getattr(self, "_fall_count", 0) + 1 if obs[5] < self.FALL_AZ else 0
         return self._fall_count >= self.FALL_STEPS
+
+    def save_obs_partial(self):
+        """Every 2 s, write the observations so far in a thread (fsync'd, atomic rename): when the
+        BMS cuts the power on a fall (duck 1, 9 Nov 2026) the log up to the fall survives."""
+        if getattr(self, "_saving", None) is not None and self._saving.is_alive():
+            return
+        snapshot = list(self.saved_obs)
+
+        def write():
+            tmp = "robot_saved_obs.pkl.tmp"
+            with open(tmp, "wb") as f:
+                pickle.dump(snapshot, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, "robot_saved_obs.pkl")
+
+        import threading
+
+        self._saving = threading.Thread(target=write, daemon=True)
+        self._saving.start()
 
     def realtime(self):
         """Run the control loop on its own core with real-time priority, so other work on the
@@ -369,6 +392,8 @@ class RLWalk:
 
                 if self.save_obs:
                     self.saved_obs.append(obs)
+                    if len(self.saved_obs) % 100 == 0:
+                        self.save_obs_partial()
 
                 if self.replay_obs is not None:
                     if i < len(self.replay_obs):
@@ -442,6 +467,8 @@ class RLWalk:
             self.feet_contacts.stop()
 
         if self.save_obs:
+            if getattr(self, "_saving", None) is not None:
+                self._saving.join()  # a partial write must not land after the full one
             pickle.dump(self.saved_obs, open("robot_saved_obs.pkl", "wb"))
         print("TURNING OFF")
 
