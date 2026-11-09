@@ -161,6 +161,7 @@ class RLWalk:
             return None
 
         cmds = self.last_commands
+        self.last_gz = float(imu_data["gyro"][2])  # for hold_heading (rad/s, + = turning left)
 
         feet_contacts = self.feet_contacts.get()
 
@@ -224,6 +225,36 @@ class RLWalk:
             out[k] = cur + max(-step, min(step, tgt - cur))
         return out
 
+    # Heading hold (duck 1, Nov 2026): the stock walk drifts 30–50° in 15 s on the real duck, and
+    # curved at up to 0.24 rad/s with bad zeros. While walking with no turn asked, integrate the
+    # gyro's z and add a small turn command against the drift. Asking for a turn, or stopping,
+    # takes the current heading as the new reference (after HOLD_SETTLE, while the turn ramps
+    # down). In the simulator with duck 1's masses and a curving leg: 19° off in 10 s without it,
+    # 1° with it. DUCK_HEADING_HOLD=0 disables it.
+    HOLD_KP = 1.0  # rad/s of turn command per rad of heading error
+    HOLD_MAX = 0.3  # rad/s, largest correction
+    HOLD_DEAD = 0.02  # |wz| below this is "no turn asked"
+    HOLD_SETTLE = 0.5  # s after a turn or a stop before holding
+
+    def hold_heading(self, target, t):
+        """target: the 7 commands from the controller (wz + = left); returns them with wz corrected."""
+        if os.environ.get("DUCK_HEADING_HOLD", "1") == "0":
+            return target
+        dt = 0.0 if getattr(self, "_hold_t", None) is None else min(t - self._hold_t, 0.1)
+        self._hold_t = t
+        walking = abs(target[0]) > 0.01 or abs(target[1]) > 0.01
+        if not walking or abs(target[2]) >= self.HOLD_DEAD:
+            self.held_yaw = 0.0
+            self._hold_from = t + self.HOLD_SETTLE
+            return target
+        if t < getattr(self, "_hold_from", 0.0):
+            self.held_yaw = 0.0
+            return target
+        self.held_yaw = getattr(self, "held_yaw", 0.0) + getattr(self, "last_gz", 0.0) * dt
+        out = list(target)
+        out[2] = float(np.clip(-self.HOLD_KP * self.held_yaw, -self.HOLD_MAX, self.HOLD_MAX))
+        return out
+
     # Fall detection: the accelerometer's z (obs[5]) stays below FALL_AZ (≈ 60° from upright)
     # for FALL_STEPS control steps -> torque off and stop. Without it the policy keeps driving
     # the servos against the floor after a fall: stall current, brownouts and a Radxa reboot
@@ -270,6 +301,7 @@ class RLWalk:
                     target_commands, self.buttons, left_trigger, right_trigger = (
                         self.xbox_controller.get_last_command()
                     )
+                    target_commands = self.hold_heading(target_commands, t)
                     self.last_commands = self.ramp_commands(target_commands, t)
                     if self.buttons.dpad_up.triggered:
                         self.phase_frequency_factor_offset += 0.05
@@ -390,7 +422,7 @@ class RLWalk:
                     late += 1
                 if t - stats_t > 10:
                     print(f"loop: mean {np.mean(loop_times)*1000:.1f} ms, max {np.max(loop_times)*1000:.1f} ms, "
-                          f"late {late}/{len(loop_times)}")
+                          f"late {late}/{len(loop_times)}, heading hold {np.degrees(getattr(self, 'held_yaw', 0.0)):+.0f}°")
                     loop_times, late, stats_t = [], 0, t
                 # print("Full loop took", took, "fps : ", np.around(1 / took, 2))
                 if (1 / self.control_freq - took) < 0:
