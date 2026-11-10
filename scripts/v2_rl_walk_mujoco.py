@@ -25,8 +25,8 @@ HOME_DIR = os.path.expanduser("~")
 class ServoLog:
     """Servo state during the walk (duck 1, Nov 2026): after each control step, read one servo's status
     block (Feetech STS registers 56-70: position, speed, load, voltage, temperature, status, current),
-    round robin. The supply voltage is common to all servos, so it is sampled every step (50 Hz); each
-    servo's load, current and temperature about every 0.28 s with 14 servos. rustypot only exposes
+    round robin, every DUCK_SERVO_LOG_EVERY steps (default 2): the supply voltage at 25 Hz, each servo's
+    load, current and temperature about every 0.56 s with 14 servos. rustypot only exposes
     positions and velocities, so this opens its own handle on the same port and only talks between the
     walk's own reads and writes. Any error turns it off for the rest of the run; the walk goes on.
     Saved next to the obs log as robot_saved_obs_servos.json. DUCK_SERVO_LOG=1 with --save_obs."""
@@ -41,6 +41,8 @@ class ServoLog:
         self.rows = []  # [step, t, id, pos, speed, load, voltage_dV, temp_C, status, current]
         self.errors = 0
         self.on = True
+        # read every N control steps (DUCK_SERVO_LOG_EVERY, default 2): one read costs ~2-3 ms of the 20 ms step
+        self.every = max(1, int(os.environ.get("DUCK_SERVO_LOG_EVERY", "2")))
         self.ser = serial.Serial(port, 1000000, timeout=0.004)
 
     @staticmethod
@@ -70,7 +72,7 @@ class ServoLog:
     def step(self, step, t):
         if not self.on:
             return
-        if not self.ids:
+        if not self.ids or step % self.every:
             return
         sid = self.ids[self.k % len(self.ids)]
         self.k += 1
