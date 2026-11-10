@@ -22,6 +22,84 @@ import os
 HOME_DIR = os.path.expanduser("~")
 
 
+class ServoLog:
+    """Servo state during the walk (duck 1, Nov 2026): after each control step, read one servo's status
+    block (Feetech STS registers 56-70: position, speed, load, voltage, temperature, status, current),
+    round robin. The supply voltage is common to all servos, so it is sampled every step (50 Hz); each
+    servo's load, current and temperature about every 0.28 s with 14 servos. rustypot only exposes
+    positions and velocities, so this opens its own handle on the same port and only talks between the
+    walk's own reads and writes. Any error turns it off for the rest of the run; the walk goes on.
+    Saved next to the obs log as robot_saved_obs_servos.json. DUCK_SERVO_LOG=1 with --save_obs."""
+
+    ADDR, LEN = 56, 15
+
+    def __init__(self, port, ids):
+        import serial
+
+        self.ids = list(ids)
+        self.k = 0
+        self.rows = []  # [step, t, id, pos, speed, load, voltage_dV, temp_C, status, current]
+        self.errors = 0
+        self.on = True
+        self.ser = serial.Serial(port, 1000000, timeout=0.004)
+
+    @staticmethod
+    def _signed(v, bit):
+        return -(v & ((1 << bit) - 1)) if v & (1 << bit) else v
+
+    def _read(self, sid):
+        body = [sid, 4, 0x02, self.ADDR, self.LEN]
+        pkt = bytes([0xFF, 0xFF] + body + [(~sum(body)) & 0xFF])
+        self.ser.reset_input_buffer()
+        self.ser.write(pkt)
+        want = 6 + self.LEN
+        buf = b""
+        t_end = time.time() + 0.004
+        while time.time() < t_end:
+            buf += self.ser.read(max(1, want - len(buf)))
+            i = buf.find(bytes([0xFF, 0xFF, sid]))
+            if i >= 0 and len(buf) - i >= want:
+                d = buf[i + 5:i + 5 + self.LEN]
+                if (~sum(buf[i + 2:i + want - 1])) & 0xFF != buf[i + want - 1]:
+                    return None
+                u16 = lambda a: d[a - self.ADDR] | (d[a - self.ADDR + 1] << 8)
+                return [u16(56), self._signed(u16(58), 15), self._signed(u16(60), 10), d[62 - self.ADDR],
+                        d[63 - self.ADDR], d[65 - self.ADDR], self._signed(u16(69), 15)]
+        return None
+
+    def step(self, step, t):
+        if not self.on:
+            return
+        if not self.ids:
+            return
+        sid = self.ids[self.k % len(self.ids)]
+        self.k += 1
+        try:
+            r = self._read(sid)
+        except Exception as e:  # noqa: BLE001
+            print(f"servo log off: {e}", flush=True)
+            self.on = False
+            return
+        if r is None:
+            self.errors += 1
+            if self.errors > 50:
+                print("servo log off: too many failed reads", flush=True)
+                self.on = False
+            return
+        self.rows.append([step, round(t, 4), sid] + r)
+
+    def save(self, path="robot_saved_obs_servos.json"):
+        import json
+
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"fields": ["step", "t", "id", "pos", "speed", "load", "voltage_dV", "temp_C", "status", "current"],
+                       "errors": self.errors, "rows": list(self.rows)}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+
+
 class RLWalk:
     def __init__(
         self,
@@ -67,7 +145,12 @@ class RLWalk:
                 self.control_freq, cutoff_frequency
             )
 
+        # the servo log opens the port before rustypot does: rustypot locks it (TIOCEXCL) and a later open fails
+        self.servo_log = ServoLog(serial_port, []) if (
+            save_obs and os.environ.get("DUCK_SERVO_LOG", "0") == "1") else None
         self.hwi = HWI(self.duck_config, serial_port)
+        if self.servo_log is not None:
+            self.servo_log.ids = list(self.hwi.joints.values())
 
         self.start()
 
@@ -277,6 +360,10 @@ class RLWalk:
         if getattr(self, "_saving", None) is not None and self._saving.is_alive():
             return
         snapshot = list(self.saved_obs)
+        servos = None
+        if getattr(self, "servo_log", None) is not None:
+            servos = ServoLog.__new__(ServoLog)
+            servos.rows, servos.errors = list(self.servo_log.rows), self.servo_log.errors
 
         def write():
             tmp = "robot_saved_obs.pkl.tmp"
@@ -285,6 +372,8 @@ class RLWalk:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp, "robot_saved_obs.pkl")
+            if servos is not None:
+                servos.save()
 
         import threading
 
@@ -438,6 +527,8 @@ class RLWalk:
                 )
 
                 self.hwi.set_position_all(action_dict)
+                if self.servo_log is not None:
+                    self.servo_log.step(i, time.time() - start_t)
 
                 i += 1
 
@@ -470,6 +561,9 @@ class RLWalk:
             if getattr(self, "_saving", None) is not None:
                 self._saving.join()  # a partial write must not land after the full one
             pickle.dump(self.saved_obs, open("robot_saved_obs.pkl", "wb"))
+            if self.servo_log is not None:
+                self.servo_log.save()
+                print(f"servo log: {len(self.servo_log.rows)} readings, {self.servo_log.errors} failed", flush=True)
         print("TURNING OFF")
 
 
